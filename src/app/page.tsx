@@ -1,13 +1,17 @@
 "use client";
 
 import { useTRPC } from "@/trpc/client";
+import { useMutation } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 
 const Page = () => {
   const trpc = useTRPC();
-  trpc.hello.queryOptions({ text: "Hello from TRPC!" });
+  const invoke = useMutation(trpc.invoke.mutationOptions({}));
 
   return (
-    <div>page</div>
+    <Button onClick={() => invoke.mutate({ text: "John" })} >
+      Invoke background job
+    </Button>
   )
 }
 export default Page
