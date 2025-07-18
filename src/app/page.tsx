@@ -9,7 +9,7 @@ const Page = () => {
   const invoke = useMutation(trpc.invoke.mutationOptions({}));
 
   return (
-    <Button onClick={() => invoke.mutate({ text: "I am abhas and i am a developer." })} >
+    <Button onClick={() => invoke.mutate({ text: "create a button component." })} >
       Invoke background job
     </Button>
   )
