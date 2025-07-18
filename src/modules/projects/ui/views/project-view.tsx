@@ -10,6 +10,7 @@ import {
 import { Suspense } from "react";
 import { Fragment } from "@/generated/prisma";
 import ProjectHeader from "../components/project-header";
+import FragmentWeb from "../components/fragment-web";
 
 interface Props {
     projectId: string;
@@ -25,7 +26,7 @@ const ProjectView = ({ projectId }: Props) => {
                 <ResizablePanel
                     defaultSize={28}
                     minSize={28}
-                    className="flex flex-col min-h-0 px-2">
+                    className="flex flex-col min-h-0">
                     <Suspense fallback={<div>Loading project...</div>}>
                         <ProjectHeader projectId={projectId} />
                     </Suspense>
@@ -40,7 +41,7 @@ const ProjectView = ({ projectId }: Props) => {
                 <ResizablePanel
                     defaultSize={72}
                     minSize={31}>
-                    TODO: preview
+                    {!!activeFragment && <FragmentWeb data={activeFragment} />}
                 </ResizablePanel>
             </ResizablePanelGroup>
         </div>

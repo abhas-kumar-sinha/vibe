@@ -39,7 +39,7 @@ const MessageContainer = ({ projectId, activeFragment, setActiveFragment }: Prop
     return (
         <div className="flex flex-col flex-1 min-h-0">
             <div className="flex-1 min-h-0 overflow-y-auto messages-container">
-                <div className="pt-2 pr-1">
+                <div className="pt-2 px-2">
                     {messages.map((message) => (
                         <MessageCard 
                         key={message.id}

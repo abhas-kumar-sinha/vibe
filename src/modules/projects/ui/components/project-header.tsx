@@ -5,7 +5,6 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import {
     ChevronDownIcon,
     ChevronLeftIcon,
-    EditIcon,
     SunMoonIcon
 } from "lucide-react";
 import { useTRPC } from "@/trpc/client";
@@ -17,10 +16,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
     DropdownMenuSeparator,
-    DropdownMenuCheckboxItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
-    DropdownMenuLabel,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
@@ -40,25 +37,25 @@ const ProjectHeader = ({ projectId }: Props) => {
     const { setTheme, theme } = useTheme();
 
     return (
-        <header className="py-3 flex items-center justify-between border-b">
+        <header className="py-2 px-1.5 flex items-center justify-between border-b">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button
                     variant="ghost"
                     size="sm"
-                    className="focus-visible:ring-0 hover:bg-transparent hover:opacity-75 transition-opacity pl-0!">
+                    className="focus-visible:ring-0 hover:bg-transparent hover:opacity-75 transition-opacity pr-2! -ml-2">
                         <Image
                         src="/logo.svg"
                         alt="Vibe"
                         width={18}
                         height={18}
                         />
-                        <span className="text-sm font-medium">{project.name}</span>
-                        <ChevronDownIcon className="mt-1" />
+                        <span className="text-sm -mt-1 font-medium">{project.name}</span>
+                        <ChevronDownIcon />
                     </Button>
                 </DropdownMenuTrigger>
 
-                <DropdownMenuContent side="bottom" align="start">
+                <DropdownMenuContent side="bottom" align="start" alignOffset={25}>
                     <DropdownMenuItem asChild>
                         <Link href="/">
                             <ChevronLeftIcon />
@@ -89,30 +86,6 @@ const ProjectHeader = ({ projectId }: Props) => {
                             </DropdownMenuSubContent>
                         </DropdownMenuPortal>
                     </DropdownMenuSub>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <Link href={`/projects/${projectId}/settings`}>
-                            Settings
-                        </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <Link href={`/projects/${projectId}/usage`}>
-                            Usage
-                        </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <Link href={`/projects/${projectId}/fragments`}>
-                            Fragments
-                        </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <Link href={`/projects/${projectId}/api-keys`}>
-                            API Keys
-                        </Link>
-                    </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
         </header>
