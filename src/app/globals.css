@@ -120,3 +120,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+.messages-container {
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;  
+}
+
+.messages-container::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, and Opera */  
+}
