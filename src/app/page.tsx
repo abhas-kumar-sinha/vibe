@@ -1,20 +1,27 @@
 "use client";
 
 import { useTRPC } from "@/trpc/client";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
 
 const Page = () => {
+  const router = useRouter();
   const trpc = useTRPC();
-  const { data: messages } = useQuery(trpc.messages.getMany.queryOptions())
-  const createMessage = useMutation(trpc.messages.create.mutationOptions({}));
+  const createProject = useMutation(trpc.projects.create.mutationOptions({
+    onSuccess: (data) => {
+      router.push(`/projects/${data.id}`);
+    },
+    onError: (error) => {
+      console.error("Error creating project:", error);
+    }
+  }));
 
   return (
     <>
-    <Button disabled={createMessage.isPending} onClick={() => createMessage.mutate({ value: "build a basic landing page with 2 sections." })} >
-      Invoke background job
+    <Button disabled={createProject.isPending} onClick={() => createProject.mutate({ value: "build a landing page with 2 sections." })} >
+      Submit
     </Button>
-    {JSON.stringify(messages, null, 2)}
     </>
   )
 }
