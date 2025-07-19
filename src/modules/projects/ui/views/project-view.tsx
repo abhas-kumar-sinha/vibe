@@ -43,7 +43,7 @@ const ProjectView = ({ projectId }: Props) => {
                         projectId={projectId} />
                     </Suspense>
                 </ResizablePanel>
-                <ResizableHandle withHandle className="bg-gray-200 dark:bg-gray-700 hover:bg-gray-400" />
+                <ResizableHandle className="hober:bg-primary transition-colors" />
                 <ResizablePanel
                     defaultSize={72}
                     minSize={31}>
@@ -55,10 +55,10 @@ const ProjectView = ({ projectId }: Props) => {
                         <div className="w-full flex item-center p-2 border-b gap-x-2">
                             <TabsList className="h-8 p-0 border rounded-md">
                                 <TabsTrigger value="preview" className="rounded-md">
-                                    <EyeIcon /> <span>Demo</span>
+                                    <EyeIcon /> <span className="-mt-0.5">Demo</span>
                                 </TabsTrigger>
                                 <TabsTrigger value="code" className="rounded-md">
-                                    <CodeIcon /> <span>Code</span>
+                                    <CodeIcon /> <span className="-mt-0.5">Code</span>
                                 </TabsTrigger>
                             </TabsList>
                             <div className="ml-auto flex items-center gap-x-2">
