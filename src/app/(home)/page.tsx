@@ -1,6 +1,6 @@
-import ProjectForm from "@/modules/home/ui/components/project-form"
-import { ProjectsList } from "@/modules/home/ui/components/projects-list"
-import Image from "next/image"
+import ProjectForm from "@/modules/home/ui/components/project-form";
+import { ProjectsList } from "@/modules/home/ui/components/projects-list";
+import Image from "next/image";
 
 const Page = () => {
   return (
@@ -8,11 +8,12 @@ const Page = () => {
       <section className="space-y-6 py-[16vh] 2xl:py-48">
         <div className="flex flex-col items-center">
           <Image
-          src="/logo.svg"
-          alt="Vibe"
-          width={50}
-          height={50}
-          className="hidden md:block" />
+            src="/logo.svg"
+            alt="Vibe"
+            width={50}
+            height={50}
+            className="hidden md:block"
+          />
         </div>
         <h1 className="text-3xl md:text-5xl font-bold text-center">
           Build something with Vibe
@@ -26,6 +27,6 @@ const Page = () => {
       </section>
       <ProjectsList />
     </div>
-  )
-}
-export default Page
+  );
+};
+export default Page;

@@ -1,1 +1,1 @@
-export type TreeItem = string | [string, ...TreeItem[]]
+export type TreeItem = string | [string, ...TreeItem[]];

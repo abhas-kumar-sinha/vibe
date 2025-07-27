@@ -1,74 +1,78 @@
-import { type TreeItem } from "@/types"
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { type TreeItem } from "@/types";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 /**
- * Convert a record of files to a tree structure.
+ * Convert a record of files to a tree structure, with directories first.
  * @param files - Record of file paths to convert
  * @returns Tree structure for TreeView component
- * 
+ *
  * @example
  * Input: { "src/Button.tsx": "...", "README.md": "..." }
  * Output: [["src", "Button.tsx"], "README.md"]
  */
-export function convertFilesToTreeItems(files : { [path: string]: string }): TreeItem[] {
-  
+export function convertFilesToTreeItems(files: {
+  [path: string]: string;
+}): TreeItem[] {
   interface TreeNode {
     [key: string]: TreeNode | null;
   }
 
   const tree: TreeNode = {};
 
+  // Sort full paths alphabetically
   const sortedPaths = Object.keys(files).sort();
 
+  // Build nested tree
   for (const filePath of sortedPaths) {
     const parts = filePath.split("/");
     let current = tree;
 
+    // Traverse/create directory nodes
     for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i]
-
+      const part = parts[i];
       if (!current[part]) {
         current[part] = {};
       }
-      current = current[part]
+      current = current[part] as TreeNode;
     }
 
-    const fileName = parts[parts.length - 1];
-    current[fileName] = null;
+    // Attach file at the leaf
+    current[parts[parts.length - 1]] = null;
   }
 
-  function convertNode(node: TreeNode, name?: string): TreeItem[] | TreeItem {
+  // Recursive conversion: directories first, then files
+  function convertNode(node: TreeNode): TreeItem[] {
     const entries = Object.entries(node);
 
-    if (entries.length === 0) {
-      return name || "";
+    // Separate directories and files
+    const dirEntries = entries
+      .filter(([, value]) => value !== null)
+      .sort(([a], [b]) => a.localeCompare(b));
+    const fileEntries = entries
+      .filter(([, value]) => value === null)
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    const children: TreeItem[] = [];
+
+    // Process directories first
+    for (const [dirName, subtree] of dirEntries) {
+      const subItems = convertNode(subtree as TreeNode);
+      children.push([dirName, ...subItems]);
     }
 
-    const children: TreeItem[] = []
-
-    for (const [key, value] of entries) {
-      if (value === null) {
-        //This is a file
-        children.push(key)
-      } else {
-        //This is a folder
-        const subTree = convertNode(value, key);
-        if (Array.isArray(subTree)) {
-          children.push([key, ...subTree]);
-        } else {
-          children.push([key, subTree]);
-        }
-      }
+    // Then process files
+    for (const [fileName] of fileEntries) {
+      children.push(fileName);
     }
 
     return children;
   }
 
-  const result = convertNode(tree);
-  return Array.isArray(result) ? result: [result]
+  // Convert root and return
+  return convertNode(tree);
 }

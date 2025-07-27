@@ -1,7 +1,7 @@
-import { auth } from '@clerk/nextjs/server';
-import { initTRPC, TRPCError } from '@trpc/server';
-import { cache } from 'react';
-import superjson from 'superjson';
+import { auth } from "@clerk/nextjs/server";
+import { initTRPC, TRPCError } from "@trpc/server";
+import { cache } from "react";
+import superjson from "superjson";
 
 export const createTRPCContext = cache(async () => {
   return { auth: await auth() };
@@ -23,16 +23,16 @@ const isAuthorized = t.middleware(({ next, ctx }) => {
   if (!ctx.auth.userId) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
-      message: "Not Authenticated."
-    })
+      message: "Not Authenticated.",
+    });
   }
 
   return next({
     ctx: {
-      auth: ctx.auth
-    }
-  })
-})
+      auth: ctx.auth,
+    },
+  });
+});
 
 // Base router and procedure helpers
 export const createTRPCRouter = t.router;

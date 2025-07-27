@@ -46,5 +46,5 @@ export const PROJECT_TEMPLATES = [
     title: "Build a Spotify clone",
     prompt:
       "Build a Spotify-style music player with a sidebar for playlists, a main area for song details, and playback controls. Use local state for managing playback and song selection. Prioritize layout balance and intuitive control placement for a smooth user experience. Use dark mode.",
-  }
+  },
 ] as const;

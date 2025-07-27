@@ -5,44 +5,46 @@ import { Sandpack } from "@codesandbox/sandpack-react";
 
 interface Props {
   code: string;
-  lang: "javascript" | "typescript" | "jsx" | "tsx" | "python";
+  lang: string; // made flexible
 }
 
 export const CodeView = ({ code, lang }: Props) => {
+  const currentTheme = useCurrentTheme();
 
-    const currentTheme = useCurrentTheme();
-  
-    const languageMap: Record<
-        Props["lang"],
-        { fileName: string }
-    > = {
-        javascript: { fileName: "/index.js" },
-        typescript: { fileName: "/index.ts" },
-        jsx: { fileName: "/App.js" },
-        tsx: { fileName: "/App.tsx" },
-        python: { fileName: "/index.txt" },
-    };
+  const languageMap: Record<string, { fileName: string }> = {
+    js: { fileName: "/index.js" },
+    ts: { fileName: "/index.ts" },
+    jsx: { fileName: "/App.js" },
+    tsx: { fileName: "/App.tsx" },
+    py: { fileName: "/index.txt" },
+    json: { fileName: "/package.json" },
+    mjs: { fileName: "/index.mjs" },
+    html: { fileName: "/index.html" },
+    // Add more supported mappings as needed
+  };
 
-    const { fileName } = languageMap[lang];
+  const fallbackFileName = "/index.ts";
 
-    return (
-        <Sandpack
-        template="nextjs"
-        theme={currentTheme}
-        options={{
-            showLineNumbers: true,
-            showTabs: false,
-            editorHeight: 562,
-            showConsole: false,
-            wrapContent: true,
-            editorWidthPercentage: 100,
-        }}
-        files={{
-            [fileName]: {
-            code,
-            active: true,
-            },
-        }}
-        />
-    );
+  const fileName = languageMap[lang]?.fileName || fallbackFileName;
+
+  return (
+    <Sandpack
+      template="nextjs"
+      theme={currentTheme}
+      options={{
+        showLineNumbers: true,
+        showTabs: false,
+        editorHeight: 562,
+        showConsole: false,
+        wrapContent: true,
+        editorWidthPercentage: 100,
+      }}
+      files={{
+        [fileName]: {
+          code,
+          active: true,
+        },
+      }}
+    />
+  );
 };
