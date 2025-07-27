@@ -29,62 +29,6 @@ export const codeAgentFunction = inngest.createFunction(
       return sandbox.sandboxId;
     });
 
-    const getAllFiles = await step.run("get-all-files", async () => {
-      const sandbox = await getSandbox(sandboxId);
-      const result: { [path: string]: string } = {};
-
-      // Directories/files to skip
-      const skipDirs = new Set([
-        ".git",
-        "node_modules",
-        ".next",
-        "dist",
-        "build",
-        "prisma",
-        "generated",
-        "nextjs-app",
-        "ui",
-      ]);
-      const skipFiles = new Set([
-        ".DS_Store",
-        "Thumbs.db",
-        "favicon.ico",
-        ".bash_logout",
-        ".bashrc",
-        ".profile",
-        ".wh.nextjs-app",
-        "package-lock.json",
-      ]);
-
-      async function getAllFilesRecursive(dirPath: string) {
-        const entries = await sandbox.files.list(dirPath);
-
-        for (const entry of entries) {
-          const fullPath =
-            dirPath === "." ? entry.name : `${dirPath}/${entry.name}`;
-
-          // Skip unwanted directories and files
-          if (skipDirs.has(entry.name) || skipFiles.has(entry.name)) {
-            continue;
-          }
-
-          if (entry.type === "file") {
-            try {
-              const content = await sandbox.files.read(fullPath);
-              result[fullPath] = content;
-            } catch (error) {
-              console.warn(`Could not read file ${fullPath}:`, error);
-            }
-          } else if (entry.type === "dir") {
-            await getAllFilesRecursive(fullPath);
-          }
-        }
-      }
-
-      await getAllFilesRecursive(".");
-      return result;
-    });
-
     const previousMessages = await step.run(
       "get-previous-messages",
       async () => {
@@ -94,10 +38,11 @@ export const codeAgentFunction = inngest.createFunction(
           where: {
             projectId: event.data.projectId,
           },
-          orderBy: {
-            createdAt: "desc",
+          include: {
+            fragment: true,
           },
-          take: 3,
+          orderBy: { createdAt: "desc" },
+          take: 4,
         });
 
         for (const message of messages) {
@@ -108,17 +53,28 @@ export const codeAgentFunction = inngest.createFunction(
           });
         }
 
-        return formattedMessages.reverse();
+        const getFilesFromMessages = (messages: any) => {
+          if (messages.length === 0) {
+            return {};
+          }
+          for (const message of messages) {
+            if (message.role === "ASSISTANT" && message.fragment) {
+              return message.fragment.files || {};
+            }
+          }
+        }
+
+        return { formattedMessages, files: getFilesFromMessages(messages) };
       },
     );
 
     const state = createState<AgentState>(
       {
         summary: "",
-        files: {},
+        files: previousMessages.files as { [path: string]: string } || {},
       },
       {
-        messages: previousMessages,
+        messages: previousMessages.formattedMessages,
       },
     );
 
@@ -127,7 +83,7 @@ export const codeAgentFunction = inngest.createFunction(
       description:
         "An expert coding agent that can write code, run commands, and manage files in a sandbox environment.",
       system: PROMPT,
-      model: gemini({ model: "gemini-2.5-pro" }),
+      model: gemini({ model: "gemini-2.0-pro" }),
       tools: [
         createTool({
           name: "terminal",
@@ -201,7 +157,7 @@ export const codeAgentFunction = inngest.createFunction(
               },
             );
             if (typeof newFiles === "object") {
-              network.state.data.files = newFiles;
+              network.state.data.files = {...network.state.data.files, ...newFiles };
             }
           },
         }),
@@ -338,9 +294,6 @@ export const codeAgentFunction = inngest.createFunction(
         });
       }
 
-      const existingFiles = result.state.data.files || {};
-      const mergedFiles = { ...existingFiles, ...getAllFiles };
-
       return await prisma.message.create({
         data: {
           projectId: event.data.projectId,
@@ -351,7 +304,13 @@ export const codeAgentFunction = inngest.createFunction(
             create: {
               sandboxUrl: sandboxUrl,
               title: generateFragmentTitle(),
-              files: mergedFiles,
+              files: result.state.data.files || {},
+
+              sandboxConfig: {
+                template: "vibe-nextjs-base-template-scn-123",
+                timeout: 60_000 * 10,
+                createdAt: new Date(),
+              },
             },
           },
         },
@@ -364,5 +323,79 @@ export const codeAgentFunction = inngest.createFunction(
       files: result.state.data.files || {},
       summary: result.state.data.summary || "No summary available.",
     };
+  },
+);
+
+// inngest-function.ts
+export const recreateSandboxFunction = inngest.createFunction(
+  { id: "recreate-sandbox" },
+  { event: "sandbox/recreate" },
+  async ({ event, step }) => {
+    const { fragmentId } = event.data;
+
+    try {
+      // Get the fragment with stored files
+      const fragment = await step.run("get-fragment", async () => {
+        return await prisma.fragment.findUnique({
+          where: { id: fragmentId },
+        });
+      });
+
+      if (!fragment) {
+        throw new Error("Fragment not found");
+      }
+
+      // Create new sandbox
+      const sandboxId = await step.run("create-new-sandbox", async () => {
+        const sandbox = await Sandbox.create("vibe-nextjs-base-template-scn-123");
+        await sandbox.setTimeout(60_000 * 10);
+        return sandbox.sandboxId;
+      });
+
+      const updatedFiles: { [path: string]: string } = {};
+
+      // Recreate all files
+      await step.run("recreate-files", async () => {
+        const sandbox = await getSandbox(sandboxId);
+        const files = fragment.files as { [path: string]: string };
+        for (const [path, content] of Object.entries(files)) {
+          await sandbox.files.write(path, content);
+          updatedFiles[path] = content;
+        }
+        return updatedFiles;
+      });
+
+      // Get new sandbox URL
+      const newSandboxUrl = await step.run("get-new-sandbox-url", async () => {
+        const sandbox = await getSandbox(sandboxId);
+        const host = sandbox.getHost(3000);
+        return `https://${host}`;
+      });
+
+      // Update fragment with new URL and clear recreation flag
+      await step.run("update-fragment", async () => {
+        return await prisma.fragment.update({
+          where: { id: fragmentId },
+          data: {
+            sandboxUrl: newSandboxUrl,
+            isRecreating: false, // Clear the recreation flag
+            updatedAt: new Date(),
+          },
+        });
+      });
+
+      return { url: newSandboxUrl };
+    } catch (error) {
+      // Clear recreation flag on error
+      await step.run("clear-recreation-flag-on-error", async () => {
+        await prisma.fragment.update({
+          where: { id: fragmentId },
+          data: {
+            isRecreating: false,
+          },
+        });
+      });
+      throw error;
+    }
   },
 );

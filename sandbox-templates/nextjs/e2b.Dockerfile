@@ -14,6 +14,7 @@ RUN npx --yes create-next-app@latest . --yes
 
 RUN npx --yes shadcn@latest init --yes -b neutral --force
 RUN npx --yes shadcn@latest add --all --yes
+RUN npm install tailwindcss-animate
 
 # Move the Nextjs app to the home directory and remove the nextjs-app directory
 RUN mv /home/user/nextjs-app/* /home/user/ && rm -rf /home/user/nextjs-app

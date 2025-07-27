@@ -53,6 +53,9 @@ model Fragment {
   messageId   String   @unique
   message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
   
+  sandboxConfig Json?  // Store sandbox configuration
+  isRecreating Boolean @default(false)
+
   sandboxUrl  String
   title       String
   files       Json

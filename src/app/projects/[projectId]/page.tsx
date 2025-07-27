@@ -23,6 +23,11 @@ const Page = async ({ params }: Props) => {
       id: projectId,
     }),
   );
+  void queryClient.prefetchQuery(
+    trpc.fragments.checkSandboxValidity.queryOptions({
+      id: projectId, 
+    }),
+  );
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
