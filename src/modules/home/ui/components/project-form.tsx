@@ -6,7 +6,7 @@ import TextAreaAutosize from 'react-textarea-autosize';
 import { z } from 'zod';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowUpIcon, Loader2Icon } from 'lucide-react';
+import { CornerDownLeft, Loader2Icon } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useTRPC } from '@/trpc/client';
@@ -83,7 +83,7 @@ const ProjectForm = () => {
                 <form
                     onSubmit={form.handleSubmit(onSubmit)}
                     className={cn(
-                        "relative border mx-2 p-4 pt-1 rounded-xl bg-sidebar dark:bg-sidebar transition-all",
+                        "relative border mx-2 p-2 rounded-xl bg-sidebar dark:bg-sidebar transition-all",
                         isFocused && "shadow-xs",
                     )}>
                         <FormField
@@ -97,7 +97,7 @@ const ProjectForm = () => {
                             onBlur={() => setIsFocused(false)}
                             minRows={2}
                             maxRows={8}
-                            className="pt-4 resize-none border-none w-full outline-none bg-transparent"
+                            className="p-2 resize-none border-none w-full outline-none bg-transparent"
                             placeholder='What would like to build?'
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -106,7 +106,7 @@ const ProjectForm = () => {
                                 }
                             }} />
                     )} />
-                    <div className="flex gap-x-2 items-end justify-between pt-2">
+                    <div className="flex gap-x-2 items-center ms-1 justify-between pt-2">
                         <div className="text-[10px] text-muted-foreground font-mono">
                             <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
                                 <span>&#8984;</span>Enter
@@ -116,18 +116,18 @@ const ProjectForm = () => {
                         <Button
                         disabled={isButtonDisabled}
                         className={cn(
-                            "size-8 rounded-full",
-                            isButtonDisabled && "bg-muted-foreground border",
+                            "size-8 rounded-lg",
+                            isButtonDisabled && "bg-primary border",
                         )}>
                             {isPending ? (
                                 <Loader2Icon className="animate-spin size-4" />
                             ) : (
-                                <ArrowUpIcon />
+                                <CornerDownLeft />
                             )}
                         </Button>
                     </div>
                 </form>
-                <div className="flex-wrap justify-center gap-2 hidden md:flex max-w-3xl">
+                <div className="flex-wrap justify-center gap-2 hidden md:flex max-w-3xl mx-auto">
                     {PROJECT_TEMPLATES.map((template) => (
                         <Button key={template.title}
                         variant="outline"

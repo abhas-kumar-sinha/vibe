@@ -1,4 +1,6 @@
 import Navbar from "@/modules/home/ui/components/navbar"
+import { GridPattern } from "@/components/magicui/grid-pattern";
+import { cn } from "@/lib/utils";
 
 interface Props {
     children: React.ReactNode
@@ -6,9 +8,25 @@ interface Props {
 
 const Layout = ({ children }: Props) => {
     return (
-        <main className="fkex flex-col min-h-screen max-h-screen">
+        <main className="flex flex-col min-h-screen max-h-screen">
             <Navbar />
-            <div className="absolute inset-0 -z-10 h-full w-full bg-background dark:bg-[radial-gradient(#393e4a_1px,transparent_1px)] bg-[radial-gradient(#dadde2_1px,transparent_1px)] [background-size:16px_16px]" />
+            <GridPattern
+                width={80}
+                height={80}
+                x={-1}
+                y={-1}
+                strokeDasharray={"4 2"}
+                className={cn(
+                    // Mobile (default)
+                    "[mask-image:radial-gradient(300px_circle_at_center,white,transparent)]",
+                    // Tablet (md breakpoint: 768px and up)
+                    "md:[mask-image:radial-gradient(400px_circle_at_center,white,transparent)]",
+                    // Laptop (lg breakpoint: 1024px and up)
+                    "lg:[mask-image:radial-gradient(700px_circle_at_center,white,transparent)]",
+                    // Other classes
+                    "-z-10"
+                )}
+            />
             <div className="flex flex-1 flex-col px-4 pv-4">
                 {children}
             </div>

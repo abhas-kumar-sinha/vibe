@@ -50,7 +50,7 @@ const ProjectHeader = ({ projectId }: Props) => {
                         width={18}
                         height={18}
                         />
-                        <span className="text-sm -mt-1 font-medium">{project.name}</span>
+                        <span className="text-sm font-medium">{project.name}</span>
                         <ChevronDownIcon />
                     </Button>
                 </DropdownMenuTrigger>

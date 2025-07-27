@@ -1,29 +1,48 @@
-import Prism from "prismjs";
-import { useEffect } from "react";
-import "prismjs/components/prism-javascript"
-import "prismjs/components/prism-jsx"
-import "prismjs/components/prism-python"
-import "prismjs/components/prism-tsx"
-import "prismjs/components/prism-typescript"
+"use client";
 
-import './code-theme.css';
+import { useCurrentTheme } from "@/hooks/use-current-theme";
+import { Sandpack } from "@codesandbox/sandpack-react";
 
 interface Props {
-    code: string;
-    lang: string;
+  code: string;
+  lang: "javascript" | "typescript" | "jsx" | "tsx" | "python";
 }
 
 export const CodeView = ({ code, lang }: Props) => {
 
-    useEffect(() => {
-        Prism.highlightAll();
-    }, [code])
+    const currentTheme = useCurrentTheme();
+  
+    const languageMap: Record<
+        Props["lang"],
+        { fileName: string }
+    > = {
+        javascript: { fileName: "/index.js" },
+        typescript: { fileName: "/index.ts" },
+        jsx: { fileName: "/App.js" },
+        tsx: { fileName: "/App.tsx" },
+        python: { fileName: "/index.txt" },
+    };
+
+    const { fileName } = languageMap[lang];
 
     return (
-        <pre className="p-2 bg-transparent border-none rounded-none m-0 text-xs">
-            <code className={`language-${lang}`}>
-                {code}
-            </code>
-        </pre>
-    )
-}
+        <Sandpack
+        template="nextjs"
+        theme={currentTheme}
+        options={{
+            showLineNumbers: true,
+            showTabs: false,
+            editorHeight: 562,
+            showConsole: false,
+            wrapContent: true,
+            editorWidthPercentage: 100,
+        }}
+        files={{
+            [fileName]: {
+            code,
+            active: true,
+            },
+        }}
+        />
+    );
+};
