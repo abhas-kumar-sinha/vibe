@@ -1,15 +1,8 @@
 import { Sandbox } from "@e2b/code-interpreter";
 import { inngest } from "./client";
-import {
-  gemini,
-  createAgent,
-  createTool,
-  createNetwork,
-  type Tool,
-  type Message,
-  createState,
-} from "@inngest/agent-kit";
-import { getSandbox, lastAssistantTextMessageContent } from "./utils";
+import { createVertex } from "@ai-sdk/google-vertex";
+import { generateText } from "ai";
+import { getSandbox } from "./utils";
 import { z } from "zod";
 import { FRAGMENT_TITLE_PROMPT, PROMPT, RESPONSE_PROMPT } from "@/prompts";
 import { prisma } from "@/lib/db";
@@ -17,12 +10,32 @@ import { prisma } from "@/lib/db";
 interface AgentState {
   summary: string;
   files: { [path: string]: string };
+  messages: Array<{
+    role: "user" | "assistant" | "system";
+    content: string;
+  }>;
+}
+
+interface ToolResult {
+  success: boolean;
+  result: string;
+  error?: string;
 }
 
 export const codeAgentFunction = inngest.createFunction(
   { id: "code-agent" },
   { event: "code-agent/run" },
-  async ({ event, step }) => {
+  async ({ event, step }) => {    
+    const projectId = process.env.GOOGLE_VERTEX_PROJECT || process.env.GOOGLE_CLOUD_PROJECT_ID || "vibe-dev-467219";
+    const location = process.env.GOOGLE_VERTEX_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
+
+    const vertex = createVertex({
+      project: projectId,
+      location: location,
+      // Authentication will be handled automatically by the SDK
+      // if GOOGLE_APPLICATION_CREDENTIALS is set or if running on GCP
+    });
+
     const sandboxId = await step.run("get-sandbox-id", async () => {
       const sandbox = await Sandbox.create("vibe-nextjs-base-template-scn-123");
       await sandbox.setTimeout(60_000 * 10);
@@ -32,7 +45,10 @@ export const codeAgentFunction = inngest.createFunction(
     const previousMessages = await step.run(
       "get-previous-messages",
       async () => {
-        const formattedMessages: Message[] = [];
+        const formattedMessages: Array<{
+          role: "user" | "assistant";
+          content: string;
+        }> = [];
 
         const messages = await prisma.message.findMany({
           where: {
@@ -47,7 +63,6 @@ export const codeAgentFunction = inngest.createFunction(
 
         for (const message of messages) {
           formattedMessages.push({
-            type: "text",
             role: message.role === "ASSISTANT" ? "assistant" : "user",
             content: message.content,
           });
@@ -62,227 +77,442 @@ export const codeAgentFunction = inngest.createFunction(
               return message.fragment.files || {};
             }
           }
+          return {};
+        };
+
+        const files = getFilesFromMessages(messages);
+
+        return { formattedMessages, files };
+      }
+    );
+
+    // Initialize agent state
+    const agentState: AgentState = {
+      summary: "",
+      files: (previousMessages.files as { [path: string]: string }) || {},
+      messages: [
+        { role: "system", content: PROMPT },
+        ...previousMessages.formattedMessages.reverse(), // Reverse to get chronological order
+        { role: "user", content: event.data.content },
+      ],
+    };
+
+    // Tool implementations
+    const runTerminalCommand = async (command: string): Promise<ToolResult> => {
+      const buffers = { stdout: "", stderr: "" };
+
+      try {
+        const sandbox = await getSandbox(sandboxId);
+        
+        // Add timeout and better error handling
+        const result = await Promise.race([
+          sandbox.commands.run(command, {
+            onStdout: (data: string) => {
+              buffers.stdout += data;
+            },
+            onStderr: (data: string) => {
+              buffers.stderr += data;
+            },
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Command timeout after 30 seconds")), 30000)
+          )
+        ]) as any;
+        
+        const output = result.stdout || buffers.stdout || "Command completed successfully";
+        const errors = result.stderr || buffers.stderr;
+        
+        // Consider command successful if exit code is 0, even with stderr
+        const isSuccess = result.exitCode === 0;
+        
+        return {
+          success: isSuccess,
+          result: `Exit code: ${result.exitCode}\nOutput: ${output}${errors ? `\nErrors: ${errors}` : ''}`,
+        };
+      } catch (error) {
+        const errorMessage = `Command failed: ${error}\nstdout: ${buffers.stdout}\nstderr: ${buffers.stderr}`;
+        return {
+          success: false,
+          result: errorMessage,
+          error: errorMessage,
+        };
+      }
+    };
+
+    const createOrUpdateFiles = async (
+      files: Array<{ path: string; content: string }>
+    ): Promise<ToolResult> => {
+      try {
+        const sandbox = await getSandbox(sandboxId);
+        const updatedFiles = { ...agentState.files };
+        const results = [];
+        const errors = [];
+
+        for (const file of files) {
+          try {            
+            // Ensure directory exists
+            const dir = file.path.split('/').slice(0, -1).join('/');
+            if (dir && dir !== '.') {
+              try {
+                await sandbox.commands.run(`mkdir -p "${dir}"`);
+              } catch (dirError) {
+                console.log(`⚠️ Directory creation warning for ${dir}:`, dirError);
+              }
+            }
+            
+            await sandbox.files.write(file.path, file.content);
+            updatedFiles[file.path] = file.content;
+            results.push(file.path);
+
+            
+          } catch (fileError) {
+            const errorMsg = fileError instanceof Error ? fileError.message : String(fileError);
+            errors.push({ path: file.path, error: errorMsg });
+          }
         }
 
-        return { formattedMessages, files: getFilesFromMessages(messages) };
-      },
-    );
+        // Update agent state with successfully created files
+        agentState.files = updatedFiles;
 
-    const state = createState<AgentState>(
-      {
-        summary: "",
-        files: previousMessages.files as { [path: string]: string } || {},
-      },
-      {
-        messages: previousMessages.formattedMessages,
-      },
-    );
+        if (results.length === 0 && errors.length > 0) {
+          const errorMessage = `No files could be created. Errors: ${errors.map(e => `${e.path}: ${e.error}`).join(', ')}`;
+          return {
+            success: false,
+            result: errorMessage,
+            error: errorMessage,
+          };
+        }
 
-    const codeAgent = createAgent<AgentState>({
-      name: "code-agent",
-      description:
-        "An expert coding agent that can write code, run commands, and manage files in a sandbox environment.",
-      system: PROMPT,
-      model: gemini({ model: "gemini-2.0-pro" }),
-      tools: [
-        createTool({
-          name: "terminal",
-          description:
-            "Use the terminal to run commands in the sandbox environment.",
-          parameters: z.object({
-            command: z.string().describe("The command to run in the terminal."),
-          }),
-          handler: async ({ command }, { step }) => {
-            return await step?.run("terminal", async () => {
-              const buffers = { stdout: "", stderr: "" };
+        let summary = `Successfully created/updated ${results.length} file(s): ${results.join(", ")}`;
+        if (errors.length > 0) {
+          summary += `. Failed to create ${errors.length} file(s): ${errors.map(e => e.path).join(", ")}`;
+        }
 
-              try {
-                const sandbox = await getSandbox(sandboxId);
-                const result = await sandbox.commands.run(command, {
-                  onStdout: (data: string) => {
-                    buffers.stdout += data;
-                  },
-                  onStderr: (data: string) => {
-                    buffers.stderr += data;
-                  },
-                });
-                return result.stdout;
-              } catch (error) {
-                console.error(
-                  `Command failed: ${error} \nstdout: ${buffers.stdout} \nstderr: ${buffers.stderr}`,
-                );
+        return {
+          success: results.length > 0,
+          result: summary,
+        };
+      } catch (error) {
+        const errorMessage = `Failed to create or update files: ${error}`;
+        return {
+          success: false,
+          result: errorMessage,
+          error: errorMessage,
+        };
+      }
+    };
 
-                return `Command failed: ${error} \nstdout: ${buffers.stdout} \nstderr: ${buffers.stderr}`;
-              }
+    const readFiles = async (paths: string[]): Promise<ToolResult> => {
+      try {
+        const sandbox = await getSandbox(sandboxId);
+        const contents = [];
+        const errors = [];
+
+        for (const path of paths) {
+          try {
+            const content = await sandbox.files.read(path);
+            contents.push({ path, content });
+          } catch (fileError) {
+            const errorMsg = fileError instanceof Error ? fileError.message : String(fileError);
+            errors.push({ path, error: errorMsg });
+
+          }
+        }
+
+        if (contents.length === 0 && errors.length > 0) {
+          const errorMessage = `No files could be read. Errors: ${errors.map(e => `${e.path}: ${e.error}`).join(', ')}`;
+          return {
+            success: false,
+            result: errorMessage,
+            error: errorMessage,
+          };
+        }
+
+        const result = {
+          successful_reads: contents,
+          failed_reads: errors,
+          summary: `Successfully read ${contents.length} files, failed to read ${errors.length} files`
+        };
+
+        return {
+          success: contents.length > 0,
+          result: JSON.stringify(result, null, 2),
+        };
+      } catch (error) {
+        const errorMessage = `Failed to read files: ${error}`;
+        return {
+          success: false,
+          result: errorMessage,
+          error: errorMessage,
+        };
+      }
+    };
+
+    // Test Vertex AI connection with available models
+    const testVertexAI = async () => {
+      try {        
+        const modelsToTest = [
+          "gemini-2.5-pro"
+        ];
+        
+        for (const modelName of modelsToTest) {
+          try {
+            await generateText({
+              model: vertex(modelName),
+              messages: [{ role: "user", content: "Reply with just 'OK'" }],
+              maxTokens: 10,
+              temperature: 0,
             });
-          },
-        }),
-        createTool({
-          name: "createOrUpdateFile",
-          description: "Create or update a file in the sandbox environment.",
-          parameters: z.object({
-            files: z.array(
-              z.object({
-                path: z
-                  .string()
-                  .describe("The path of the file to create or update."),
-                content: z
-                  .string()
-                  .describe("The content of the file to create or update."),
-              }),
-            ),
-          }),
-          handler: async (
-            { files },
-            { step, network }: Tool.Options<AgentState>,
-          ) => {
-            const newFiles = await step?.run(
-              "createOrUpdateFiles",
-              async () => {
-                try {
-                  const updatedFiles = network.state.data.files || {};
-                  const sandbox = await getSandbox(sandboxId);
-
-                  for (const file of files) {
-                    await sandbox.files.write(file.path, file.content);
-                    updatedFiles[file.path] = file.content;
-                  }
-
-                  return updatedFiles;
-                } catch (error) {
-                  console.error(`Failed to create or update files: ${error}`);
-
-                  return "Error:" + error;
-                }
-              },
-            );
-            if (typeof newFiles === "object") {
-              network.state.data.files = {...network.state.data.files, ...newFiles };
+            return { working: true, model: modelName };
+          } catch (modelError) {
+            const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
+            
+            // Check for common authentication and permission errors
+            if (errorMsg.includes("403") || errorMsg.includes("Permission") || errorMsg.includes("aiplatform.endpoints.predict")) {
+              console.error("🚫 PERMISSION ERROR: Make sure your service account has the 'Vertex AI User' role");
+              console.error("🚫 Required permission: aiplatform.endpoints.predict");
             }
-          },
-        }),
-        createTool({
-          name: "readFiles",
-          description: "Read files from the sandbox environment.",
-          parameters: z.object({
-            paths: z.array(
-              z.string().describe("The paths of the files to read."),
-            ),
-          }),
-          handler: async ({ paths }, { step }) => {
-            return await step?.run("readFiles", async () => {
-              try {
-                const sandbox = await getSandbox(sandboxId);
-                const contents = [];
+            if (errorMsg.includes("Unable to authenticate")) {
+              console.error("🚫 AUTH ERROR: Check GOOGLE_APPLICATION_CREDENTIALS environment variable");
+            }
+            
+            continue;
+          }
+        }
+        
+        throw new Error("All model tests failed - check authentication and permissions");
+      } catch (error) {
+        return { working: false, model: null };
+      }
+    };
 
-                for (const path of paths) {
-                  const content = await sandbox.files.read(path);
-                  contents.push({ path, content });
-                }
+    const vertexTest = await step.run("test-vertex-ai", testVertexAI);
 
-                return JSON.stringify(contents, null, 2);
-              } catch (error) {
-                console.error(`Failed to read files: ${error}`);
-                return "Error:" + error;
-              }
+    if (!vertexTest.working || !vertexTest.model) {
+      return {
+        url: "",
+        title: "Error: Vertex AI Connection Failed",
+        files: {},
+        summary: "Vertex AI connection failed. Please check:\n1. GOOGLE_APPLICATION_CREDENTIALS is set\n2. Service account has 'Vertex AI User' role\n3. Project and location are correct",
+      };
+    }
+
+    // Main conversation loop with tool calling
+    const result = await step.run("run-agent-conversation", async () => {
+      const maxIterations = 10;
+      let currentIteration = 0;
+      let conversationComplete = false;
+
+      while (currentIteration < maxIterations && !conversationComplete) {
+        try {
+          
+          const response = await generateText({
+            model: vertex(vertexTest.model),
+            messages: agentState.messages,
+            tools: {
+              terminal: {
+                description: "Use the terminal to run commands in the sandbox environment.",
+                parameters: z.object({
+                  command: z.string().describe("The command to run in the terminal."),
+                }),
+                execute: async ({ command }) => {
+                  return await runTerminalCommand(command);
+                },
+              },
+              createOrUpdateFile: {
+                description: "Create or update files in the sandbox environment.",
+                parameters: z.object({
+                  files: z.array(
+                    z.object({
+                      path: z.string().describe("The path of the file to create or update."),
+                      content: z.string().describe("The content of the file to create or update."),
+                    })
+                  ),
+                }),
+                execute: async ({ files }) => {
+                  return await createOrUpdateFiles(files);
+                },
+              },
+              listFiles: {
+                description: "List files and directories in the sandbox environment to understand the project structure.",
+                parameters: z.object({
+                  path: z.string().optional().describe("The path to list (defaults to current directory)"),
+                  recursive: z.boolean().optional().describe("Whether to list files recursively"),
+                }),
+                execute: async ({ path = ".", recursive = false }) => {
+                  try {
+                    const sandbox = await getSandbox(sandboxId);
+                    const command = recursive ? `find "${path}" -type f -name "*" | head -50` : `ls -la "${path}"`;
+                    const result = await sandbox.commands.run(command);
+                    return {
+                      success: true,
+                      result: `Files in ${path}:\n${result.stdout || "No files found"}`,
+                    };
+                  } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    return {
+                      success: false,
+                      result: `Failed to list files: ${errorMsg}`,
+                      error: errorMsg,
+                    };
+                  }
+                },
+              },
+              readFiles: {
+                description: "Read files from the sandbox environment.",
+                parameters: z.object({
+                  paths: z.array(z.string().describe("The paths of the files to read.")),
+                }),
+                execute: async ({ paths }) => {
+                  return await readFiles(paths);
+                },
+              },
+            },
+            maxSteps: 10,
+          });
+
+          // Only add assistant response if it has content
+          if (response.text && response.text.trim().length > 0) {
+            agentState.messages.push({
+              role: "assistant",
+              content: response.text,
             });
-          },
-        }),
-      ],
-      lifecycle: {
-        onResponse: async ({ result, network }) => {
-          const lastAssistantMessageText =
-            lastAssistantTextMessageContent(result);
 
-          if (lastAssistantMessageText && network) {
-            if (lastAssistantMessageText.includes("<task_summary>")) {
-              network.state.data.summary = lastAssistantMessageText;
+            // Check if task is complete (contains summary)
+            if (response.text.includes("<task_summary>")) {
+              agentState.summary = response.text;
+              conversationComplete = true;
+              break;
             }
           }
 
-          return result;
-        },
-      },
-    });
+          // Check if we should request a summary
+          const hasToolCalls = response.toolCalls && response.toolCalls.length > 0;
+          
+          if (!hasToolCalls && (!response.text || response.text.trim().length === 0)) {
+            agentState.messages.push({
+              role: "user",
+              content: "Please provide a summary of what you've accomplished wrapped in <task_summary> tags. Include details about the files you created and what functionality was implemented.",
+            });
+          } else if (!hasToolCalls && response.text && response.text.trim().length > 0 && !response.text.includes("<task_summary>")) {
+            agentState.messages.push({
+              role: "user",
+              content: "Please provide a summary of what you've accomplished wrapped in <task_summary> tags. Include details about the files you created and what functionality was implemented.",
+            });
+          }
 
-    const network = createNetwork<AgentState>({
-      name: "coding-agent-network",
-      agents: [codeAgent],
-      maxIter: 15,
-      defaultState: state,
-      router: async ({ network }) => {
-        const summary = network.state.data.summary;
+          currentIteration++;
 
-        if (summary) {
-          return;
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          
+          // If we have files created, still consider it partially successful
+          if (Object.keys(agentState.files).length > 0) {
+            agentState.summary = `<task_summary>
+              Task partially completed with ${Object.keys(agentState.files).length} files created: ${Object.keys(agentState.files).join(", ")}
+              Error encountered: ${errorMsg}
+              </task_summary>`;
+            conversationComplete = true;
+          }
+          break;
         }
+      }
 
-        return codeAgent;
-      },
+      // Final fallback if no summary was generated but files exist
+      if (!conversationComplete && Object.keys(agentState.files).length > 0) {
+        agentState.summary = `<task_summary>
+Task completed with ${Object.keys(agentState.files).length} files created: ${Object.keys(agentState.files).join(", ")}
+Agent completed the work but did not provide a detailed summary.
+</task_summary>`;
+        conversationComplete = true;
+      }
+
+      // If still no summary and no files, create a minimal error summary
+      if (!conversationComplete && agentState.summary.trim() === "") {
+        agentState.summary = `<task_summary>
+Task could not be completed. No files were created and no meaningful progress was made.
+Please try rephrasing your request or check if the task is feasible.
+</task_summary>`;
+      }
+
+      return {
+        success: conversationComplete || Object.keys(agentState.files).length > 0,
+        summary: agentState.summary,
+        files: agentState.files,
+        messages: agentState.messages,
+      };
     });
 
-    const result = await network.run(event.data.content, { state });
+    // Helper function to get fast model for auxiliary tasks
+    const getFastModel = (currentModel: string): string => {
+      if (currentModel.includes("flash")) {
+        return currentModel;
+      }
+      // Try to use flash variant for faster auxiliary tasks
+      return "gemini-2.5-pro";
+    };
 
-    const fragmentTitleGenerator = createAgent({
-      name: "fragment-title-generator",
-      description: "A Fragment Title generator",
-      system: FRAGMENT_TITLE_PROMPT,
-      model: gemini({
-        model: "gemini-2.0-flash",
-      }),
-    });
+    // Generate fragment title using a fast model
+    const fragmentTitle = await step.run("generate-fragment-title", async () => {
+      try {
+        if (!result.summary || result.summary.trim() === "") {
+          return "Fragment";
+        }
+        
+        const titleModel = getFastModel(vertexTest.model);
+        
+        const titleResponse = await generateText({
+          model: vertex(titleModel),
+          messages: [
+            { role: "system", content: FRAGMENT_TITLE_PROMPT },
+            { role: "user", content: result.summary },
+          ],
+          maxTokens: 100,
+        });
 
-    const responseGenerator = createAgent({
-      name: "response-generator",
-      description: "A response generator",
-      system: RESPONSE_PROMPT,
-      model: gemini({
-        model: "gemini-2.0-flash",
-      }),
-    });
-
-    const { output: fragmentTitleOutput } = await fragmentTitleGenerator.run(
-      result.state.data.summary,
-    );
-    const { output: responseOutput } = await responseGenerator.run(
-      result.state.data.summary,
-    );
-
-    const generateFragmentTitle = () => {
-      if (fragmentTitleOutput[0].type !== "text") {
+        return titleResponse.text || "Fragment";
+      } catch (error) {
+        console.error("Error generating fragment title:", error);
         return "Fragment";
       }
+    });
 
-      if (Array.isArray(fragmentTitleOutput[0].content)) {
-        return fragmentTitleOutput[0].content.map((txt) => txt).join("");
-      } else {
-        return fragmentTitleOutput[0].content;
-      }
-    };
+    // Generate user response using a fast model
+    const userResponse = await step.run("generate-user-response", async () => {
+      try {
+        if (!result.summary || result.summary.trim() === "") {
+          return "I encountered an issue completing the task. Please try again.";
+        }
+        
+        const responseModel = getFastModel(vertexTest.model);
+        
+        const responseText = await generateText({
+          model: vertex(responseModel),
+          messages: [
+            { role: "system", content: RESPONSE_PROMPT },
+            { role: "user", content: result.summary },
+          ],
+          maxTokens: 200,
+        });
 
-    const generateResponse = () => {
-      if (responseOutput[0].type !== "text") {
+        return responseText.text || "Here you go";
+      } catch (error) {
+        console.error("Error generating user response:", error);
         return "Here you go";
       }
+    });
 
-      if (Array.isArray(responseOutput[0].content)) {
-        return responseOutput[0].content.map((txt) => txt).join("");
-      } else {
-        return responseOutput[0].content;
-      }
-    };
-
-    const isError =
-      !result.state.data.summary ||
-      Object.keys(result.state.data.files || {}).length === 0;
+    const isError = !result.summary || (result.summary.trim() === "" && Object.keys(result.files || {}).length === 0);
 
     const sandboxUrl = await step.run("get-sandbox-url", async () => {
       const sandbox = await getSandbox(sandboxId);
       const host = sandbox.getHost(3000);
-      return `https://${host}`;
+      const url = `https://${host}`;
+      return url;
     });
 
     await step.run("save-result", async () => {
+      
       if (isError) {
         return await prisma.message.create({
           data: {
@@ -297,19 +527,19 @@ export const codeAgentFunction = inngest.createFunction(
       return await prisma.message.create({
         data: {
           projectId: event.data.projectId,
-          content: generateResponse(),
+          content: userResponse,
           role: "ASSISTANT",
           type: "RESULT",
           fragment: {
             create: {
               sandboxUrl: sandboxUrl,
-              title: generateFragmentTitle(),
-              files: result.state.data.files || {},
-
+              title: fragmentTitle,
+              files: result.files || {},
               sandboxConfig: {
                 template: "vibe-nextjs-base-template-scn-123",
                 timeout: 60_000 * 10,
                 createdAt: new Date(),
+                model: vertexTest.model, // Track which model was used
               },
             },
           },
@@ -317,16 +547,18 @@ export const codeAgentFunction = inngest.createFunction(
       });
     });
 
-    return {
+    const finalResult = {
       url: sandboxUrl,
-      title: "Fragment",
-      files: result.state.data.files || {},
-      summary: result.state.data.summary || "No summary available.",
+      title: fragmentTitle,
+      files: result.files || {},
+      summary: result.summary || "No summary available.",
+      modelUsed: vertexTest.model, // Include model info in response
     };
-  },
+
+    return finalResult;
+  }
 );
 
-// inngest-function.ts
 export const recreateSandboxFunction = inngest.createFunction(
   { id: "recreate-sandbox" },
   { event: "sandbox/recreate" },

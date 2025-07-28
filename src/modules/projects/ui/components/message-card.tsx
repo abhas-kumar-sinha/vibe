@@ -74,7 +74,7 @@ const AssistantMessage = ({
     <div
       className={cn(
         "flex flex-col group pe-2 pb-4",
-        type === "ERROR" && "text-red-700 dark:text-red-500",
+        type === "ERROR" && "text-red-700 dark:text-red-400",
       )}
     >
       <div className="flex item-center gap-2 mb-2">
